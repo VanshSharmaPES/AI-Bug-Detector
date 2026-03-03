@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - PORT=3000
+      - NODE_ENV=production
+    env_file:
+      - .env
+    depends_on:
+      - redis
+    volumes:
+      - ./private-key.pem:/app/private-key.pem:ro
+
+  worker:
+    build: .
+    command: npm run worker
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - NODE_ENV=production
+    env_file:
+      - .env
+    depends_on:
+      - redis
+    volumes:
+      - ./private-key.pem:/app/private-key.pem:ro
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:

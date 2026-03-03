@@ -1,0 +1,18 @@
+   Γû▓ Next.js 15.5.12
+
+   Creating an optimized production build ...
+ Γ£ô Compiled successfully in 1333ms
+   Linting and checking validity of types ...
+Failed to compile.
+
+./src/app/api/webhook/route.ts:34:27
+Type error: Argument of type 'string' is not assignable to parameter of type 'ExtractNameType<DataTypeOrJob, DefaultNameType>'.
+
+  32 |
+  33 |     try {
+> 34 |         await prQueue.add('review-pr', {
+     |                           ^
+  35 |             owner: repository.owner.login,
+  36 |             repo: repository.name,
+  37 |             prNumber: pull_request.number,
+Next.js build worker exited with code: 1 and signal: null
