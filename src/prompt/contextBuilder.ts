@@ -108,12 +108,18 @@ export interface PromptContext {
     surroundingContext?: string;
 }
 
+// Minimal rule interface for prompt building (supports both legacy and new format)
+export interface TriggeredRuleHint {
+    id: string;
+    description: string;
+}
+
 export function buildUserPrompt(
     filename: string,
     language: string,
     rawDiff: string,
     astSummary: any,
-    triggeredRules: Rule[]
+    triggeredRules: TriggeredRuleHint[]
 ): string {
     // Legacy compatibility wrapper
     let astString = JSON.stringify(astSummary, null, 2);
