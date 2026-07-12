@@ -1,115 +1,95 @@
 # AI Bug Detector
 
-AI Bug Detector is a GitHub App that integrates directly into Pull Request workflows to perform automated, AI-powered code reviews. It detects deep logical flaws — including memory leaks, race conditions, null dereferences, and injection vulnerabilities — and posts inline review comments on the exact lines of code where issues are found.
+A GitHub App that performs automated, AI-powered code review on Pull Requests. It parses code structurally (not just as text), reasons about it using an LLM, and posts inline review comments on the exact lines where issues are found.
+
+**Live:** Deployed on Vercel · **Languages supported:** C, C++, Python, JavaScript, TypeScript
 
 ---
 
-## 🚀 Features
+## What it does
 
-- **Automated Code Review**: Analyzes code changes in Pull Requests automatically via GitHub Webhooks.
-- **Deep Structural Analysis**: Uses Abstract Syntax Trees (AST) via `tree-sitter` and `@typescript-eslint/typescript-estree` to thoroughly understand code structure (supports C, C++, Python, JavaScript, and TypeScript).
-- **Fast, AI-Powered Insights**: Powered by **Groq** (using Llama 3.3 70B as primary) with high speed and low latency, and fallback support for any OpenAI-compatible API (e.g., GPT-4o-mini).
-- **Inline Feedback**: Posts actionable review comments directly on the affected lines in the GitHub Pull Request.
-- **Robust Queueing**: Uses **BullMQ** and **Redis** for reliable asynchronous job processing and retry mechanisms.
+When a Pull Request is opened or updated, AI Bug Detector:
+
+1. Receives the event via a GitHub webhook (signature-verified)
+2. Parses the changed files into an Abstract Syntax Tree (AST) using `tree-sitter`
+3. Runs a lightweight rule engine over the AST to surface structural hints (e.g. suspicious patterns worth flagging to the model)
+4. Builds a prompt combining the raw diff, AST context, and rule hints
+5. Sends it to an LLM (Groq / Llama 3.3 70B, with OpenAI-compatible fallback) and validates the structured JSON response against a schema (Zod)
+6. Maps each finding back to its exact line in the diff and posts an inline PR comment
+
+Detected issue types include memory leaks, race conditions, null dereferences, and injection vulnerabilities.
+
+## Why structural parsing instead of pattern matching
+
+Regex-based review tools match text, not code. A rule like "flag `strcpy` calls" using regex has no way to know if that call is inside a comment, a string literal, or genuinely reachable code — it just matches the substring. Parsing into an AST means the tool understands actual code structure: scope, control flow, and where a given variable is declared versus used. That's the difference between a lint rule that fires on real bugs and one that mostly produces noise.
+
+## Why an async job queue instead of handling requests synchronously
+
+GitHub expects a webhook response within a few seconds, or it treats the delivery as failed and retries — which would trigger duplicate analysis of the same PR. An LLM call over AST + diff context can easily take longer than that window. So the webhook handler does the minimum needed to acknowledge receipt (verify signature, enqueue the job, return 200 immediately), and a separate BullMQ worker processes the job asynchronously against Redis. This also provides retry-on-failure without re-triggering the webhook, and a natural point to add backpressure if many PRs arrive at once.
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
-- **Framework**: Next.js (App Router)
-- **Runtime**: Node.js 20+
-- **GitHub API**: Octokit (`@octokit/rest`, `@octokit/webhooks`, `@octokit/auth-app`)
-- **Queue**: BullMQ & Redis
-- **AI Providers**: Groq SDK (OpenAI-compatible client), OpenAI SDK
-- **Validation**: Zod (for strict LLM JSON-schema output validation)
+| Layer | Tech |
+|---|---|
+| Framework | Next.js (App Router), Node.js 20+ |
+| GitHub integration | Octokit (`@octokit/rest`, `@octokit/webhooks`, `@octokit/auth-app`) |
+| Structural parsing | tree-sitter, `@typescript-eslint/typescript-estree` |
+| AI | Groq SDK (Llama 3.3 70B), OpenAI SDK (fallback) |
+| Queue | BullMQ + Redis |
+| Validation | Zod (strict schema validation on LLM output) |
+| Deployment | Vercel, Docker Compose (local) |
 
----
+## Architecture
 
-## ⚙️ Setup & Local Development
+```
+GitHub PR event
+     │
+     ▼
+Webhook handler (HMAC-verified) ──► enqueue job ──► return 200
+                                          │
+                                          ▼
+                                   BullMQ worker (async)
+                                          │
+                     ┌────────────────────┼────────────────────┐
+                     ▼                    ▼                    ▼
+              AST parsing          Rule engine hints      Diff context
+              (tree-sitter)                                    │
+                     └────────────────────┬────────────────────┘
+                                          ▼
+                              Prompt → LLM (Groq/OpenAI)
+                                          │
+                                          ▼
+                        Zod-validated structured findings
+                                          │
+                                          ▼
+                     Map findings to diff lines → post inline PR comments
+```
 
-### 1. Prerequisites
+## Running locally
 
-- Node.js (v20+)
-- Redis Server (running locally on port 6379, or via Docker)
-- A registered GitHub App with the following permissions:
-  - **Pull requests**: Read & Write
-  - **Metadata**: Read-only
-  - **Webhooks**: Active (subscribed to *Pull Request* events)
-
-### 2. Installation
-
-Clone the repository and install dependencies:
 ```bash
 git clone https://github.com/VanshSharmaPES/AI-Bug-Detector.git
 cd AI-Bug-Detector
 npm install
+cp .env.example .env   # fill in GITHUB_APP_ID, GITHUB_WEBHOOK_SECRET, GROQ_API_KEY, REDIS_URL
 ```
 
-### 3. Environment Configuration
+Requires a registered GitHub App (Pull requests: Read & Write, Metadata: Read-only, Webhooks subscribed to PR events) with its private key saved as `private-key.pem` in the project root.
 
-Create a `.env` file at the root directory:
 ```bash
-cp .env.example .env
+docker-compose up --build   # Redis + Next.js server + worker, containerized
 ```
 
-Fill in your configurations inside `.env`:
-* `GITHUB_APP_ID`: Your GitHub App's numeric ID.
-* `GITHUB_WEBHOOK_SECRET`: The webhook secret you configured on your GitHub App page.
-* `GROQ_API_KEY`: Your Groq API key (generate one at [Groq Console](https://console.groq.com)).
-* `REDIS_URL`: URL to your Redis server (default is `redis://localhost:6379`).
+or run components separately: `redis-server`, `npm run dev`, `npm run worker`.
 
-### 4. Authenticate the App
-1. Generate a **Private Key** in your GitHub App settings (located at the bottom of the General settings page).
-2. Download the `.pem` file.
-3. Rename the file to `private-key.pem` and save it directly in the root of your project directory.
+## Roadmap
 
----
+- Interactive "Suggested Changes" (auto-fix commits, not just comments)
+- Codebase-aware RAG — semantic cross-file context so findings account for related code beyond the diff
+- Web dashboard for review history and telemetry
 
-## 🏃 Running the Application
-
-### Option A: Using Docker Compose (Recommended)
-This starts Redis, the Next.js server, and the BullMQ worker containerized:
-```bash
-docker-compose up --build
-```
-
-### Option B: Local Running (Without Docker)
-1. Ensure your local Redis server is active:
-   ```bash
-   redis-server
-   ```
-2. Start the Next.js Webhook listener:
-   ```bash
-   npm run dev
-   ```
-3. Run the BullMQ Worker in a separate terminal:
-   ```bash
-   npm run worker
-   ```
-
----
-
-## 📂 Codebase Structure
-
-* `src/app/api/webhook/route.ts` - Receives and verifies HMAC signatures of incoming webhooks.
-* `src/queue/prQueue.ts` / `worker.ts` - Queue configuration and async worker job handler.
-* `src/parser/astParser.ts` - Code language detection and AST generation.
-* `src/rules/ruleEngine.ts` - Pre-processing static analysis rules.
-* `src/prompt/contextBuilder.ts` - Assembles raw diffs, AST, and rule hints into LLM prompts.
-* `src/ai/analyzer.ts` - Calls Groq/OpenAI to generate structured bug findings.
-* `src/github/commenter.ts` - Maps finding lines back to diff hunks and posts inline reviews.
-
----
-
-## 🗺️ Roadmap & Extensions
-Interested in contributing or taking this further? See our ignored [REQUIREMENTS.md](file:///c:/VanshSharma/Projects/AI%20Bug%20Detector/REQUIREMENTS.md) file for specifications on:
-* Interactive GitHub Suggested Changes (Auto-Fixes)
-* Structural syntax query mapping (`S-expressions`)
-* Next.js Web UI Dashboard & Telemetry
-* Codebase RAG (semantic cross-file context indexing)
-
----
-
-## 📄 License
+## License
 
 MIT
