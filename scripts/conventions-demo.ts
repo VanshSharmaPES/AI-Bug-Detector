@@ -31,17 +31,17 @@ async function main() {
   const profile = buildProfile(base, profileSources);
   if (fingerprint(base, profileSources) !== profile.repository.fingerprint) throw new Error('Demo profile fingerprint mismatch.');
 
-  const source = fs.readFileSync(path.join(base, 'src/helpers.ts'), 'utf8');
+  const source = fs.readFileSync(path.join(change, 'src/helpers.ts'), 'utf8');
   const violation = { ruleId: 'function-name-style' as const, path: 'src/helpers.ts', line: 16, message: 'Use camelCase.', confidence: 1, examples: [] };
   const fixes = await generateFixes([violation], new Map([['src/helpers.ts', source]]), {
     complete: async () => JSON.stringify({
       path: 'src/helpers.ts',
       explanation: 'Rename the function to match the repository convention.',
-      unifiedDiff: 'diff --git a/src/helpers.ts b/src/helpers.ts\nindex 1111111..2222222 100644\n--- a/src/helpers.ts\n+++ b/src/helpers.ts\n@@ -13,3 +13,4 @@ export function formatValueTwelve(value: string) { return value.trim(); }\n export function formatValueThirteen(value: string) { return value.trim(); }\n export function formatValueFourteen(value: string) { return value.trim(); }\n export function formatValueFifteen(value: string) { return value.trim(); }\n+export function formatValueNew(value: string) { return value.trim(); }\n',
+      unifiedDiff: 'diff --git a/src/helpers.ts b/src/helpers.ts\nindex 1111111..2222222 100644\n--- a/src/helpers.ts\n+++ b/src/helpers.ts\n@@ -13,4 +13,4 @@ export function formatValueTwelve(value: string) { return value.trim(); }\n export function formatValueThirteen(value: string) { return value.trim(); }\n export function formatValueFourteen(value: string) { return value.trim(); }\n export function formatValueFifteen(value: string) { return value.trim(); }\n-export function format_value_sixteen(value: string) { return value.trim(); }\n+export function formatValueSixteen(value: string) { return value.trim(); }\n',
     }),
   });
-  const validated = validateFixes(fixes, base, profile);
-  console.log(`\n3. Mock fix validation: ${validated[0]?.status ?? 'unavailable'}${validated[0]?.reason ? ` — ${validated[0].reason}` : ''}`);
+  const validated = validateFixes(fixes, change, profile);
+  console.log(`\n3. Mock model + real fix validation: ${validated[0]?.status ?? 'unavailable'}${validated[0]?.reason ? ` — ${validated[0].reason}` : ''}`);
   console.log('Demo complete. No GitHub credentials, Redis, or AI provider are required.');
 }
 

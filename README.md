@@ -13,7 +13,7 @@ npm install
 npm run demo:conventions
 ```
 
-The demo profiles the included fixtures, reviews a deliberately problematic patch, and validates a mocked fix end-to-end. It requires no Redis, GitHub credentials, or AI provider.
+The demo profiles the included fixtures, reviews a deliberately problematic patch, and validates a mocked model-generated fix end-to-end. The model response is mocked for determinism, but the real fix validator applies the diff in isolation, reparses the changed file, and re-evaluates the original convention. It requires no Redis, GitHub credentials, or AI provider.
 
 For the individual commands:
 
