@@ -13,5 +13,9 @@ export function renderReview(result: ReviewResult): string {
   for (const violation of result.violations) lines.push('', `${violation.path}:${violation.line} [${violation.ruleId}] ${violation.message} (${Math.round(violation.confidence * 100)}%)`, ...violation.examples.map(example => `  evidence: ${example.path}:${example.line}`));
   for (const skip of result.skips) lines.push(`SKIPPED ${skip.path}: ${skip.reason}`);
   for (const diagnostic of result.diagnostics) lines.push(`${diagnostic.severity.toUpperCase()} ${diagnostic.code}: ${diagnostic.message}`);
+  for (const fix of result.fixes) {
+    lines.push('', `FIX ${fix.status.toUpperCase()} ${fix.violation.path}:${fix.violation.line} [${fix.violation.ruleId}]${fix.reason ? ` — ${fix.reason}` : ''}`);
+    if (fix.unifiedDiff) lines.push(fix.unifiedDiff);
+  }
   return lines.join('\n');
 }

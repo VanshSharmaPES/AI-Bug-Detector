@@ -18,7 +18,7 @@ export interface ConventionProfile { schemaVersion: typeof PROFILE_SCHEMA_VERSIO
 export interface Diagnostic { code: string; path?: string; message: string; severity: 'warning' | 'error'; }
 export interface AnalysisSkip { path: string; reason: 'unsupported' | 'parse-error' | 'deleted' | 'file-too-large' | 'function-limit'; }
 export interface Violation { ruleId: RuleId; path: string; line: number; message: string; confidence: number; examples: SourceLocation[]; }
-export interface FixResult { violation: Violation; status: 'accepted' | 'rejected' | 'unavailable'; reason?: string; unifiedDiff?: string; }
+export interface FixResult { violation: Violation; status: 'generated' | 'validated' | 'rejected' | 'unavailable'; reason?: string; unifiedDiff?: string; }
 export interface ReviewResult { violations: Violation[]; skips: AnalysisSkip[]; diagnostics: Diagnostic[]; partial: boolean; fixes: FixResult[]; }
 
 export interface ImportFeature { line: number; source: string; group: 'builtin' | 'external' | 'relative'; }

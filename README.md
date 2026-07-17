@@ -76,6 +76,8 @@ npm run conventions:profile -- --repo fixtures/convention-base --out fixtures/pr
 npm run conventions:review -- --base fixtures/convention-base --repo fixtures/convention-change --profile fixtures/profile.json --patch fixtures/convention-change.patch
 ```
 
+Pass `--fixes auto` to request up to three structured AI-generated unified diffs for the detected convention violations. Each generated diff is applied in an isolated temporary copy, reparsed, checked against the original rule, and rejected if it introduces another convention violation or touches an unrelated location.
+
 ## How Codex and GPT-5.6 were used
 
 Codex, using GPT-5.6, was used as a development collaborator for architecture review, implementation planning, code generation, test creation, and local verification of the repository-convention CLI. It helped structure the code into typed, independently testable modules and validate the profile-and-review flow against fixtures.
@@ -100,6 +102,8 @@ docker-compose up --build   # Redis + Next.js server + worker, containerized
 or run components separately: `redis-server`, `npm run dev`, `npm run worker`.
 
 ## Roadmap
+
+- Professional UI refinement for the dashboard and review experience, with a distinctive visual system and polished states
 
 - Interactive "Suggested Changes" (auto-fix commits, not just comments)
 - Codebase-aware RAG — semantic cross-file context so findings account for related code beyond the diff

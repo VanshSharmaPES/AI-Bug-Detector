@@ -11,10 +11,12 @@ import { resolvePatch } from './patchResolver';
 import { evaluateProfile } from './evaluator';
 import { fingerprint } from './profileBuilder';
 import { extractLlmPatterns } from './llmPatterns';
+import { generateFixes } from './fixGenerator';
+import { validateFixes } from './fixValidator';
 
 function option(args: string[], name: string): string | undefined { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : undefined; }
 function has(args: string[], name: string): boolean { return args.includes(name); }
-function usage() { return 'Usage:\n  conventions profile --repo <base-repo> [--out <profile.json>] [--max-files 50] [--include-tests] [--llm-patterns]\n  conventions review --base <base-repo> --repo <post-change-repo> --profile <profile.json> --patch <change.patch>'; }
+function usage() { return 'Usage:\n  conventions profile --repo <base-repo> [--out <profile.json>] [--max-files 50] [--include-tests] [--llm-patterns]\n  conventions review --base <base-repo> --repo <post-change-repo> --profile <profile.json> --patch <change.patch> [--fixes off|auto]'; }
 function collectSources(root: string) {
   const selection = selectSourceFiles(root);
   const sources = selection.paths.map(repoPath => { const source = fs.readFileSync(safeJoin(root, repoPath), 'utf8'); return { path: repoPath, source, features: extractFileFeatures(repoPath, source) }; });
@@ -46,9 +48,11 @@ export async function runCli(args: string[]): Promise<number> {
   } catch (error) { console.error(error instanceof Error ? error.message : 'Unable to create profile.'); return 2; }
 }
 
-function review(args: string[]): number {
+async function review(args: string[]): Promise<number> {
   const base = option(args, '--base'), repo = option(args, '--repo'), profilePath = option(args, '--profile'), patch = option(args, '--patch');
   if (!base || !repo || !profilePath || !patch) { console.error(usage()); return 2; }
+  const fixes = option(args, '--fixes') ?? 'off';
+  if (fixes !== 'off' && fixes !== 'auto') { console.error('--fixes must be off or auto.'); return 2; }
   try {
     const profile = readProfile(path.resolve(profilePath)); const baseRoot = path.resolve(base), postRoot = path.resolve(repo);
     if (!fs.statSync(baseRoot).isDirectory() || !fs.statSync(postRoot).isDirectory()) throw new Error('--base and --repo must be directories.');
@@ -56,8 +60,10 @@ function review(args: string[]): number {
     if (fingerprint(baseRoot, baseSources) !== profile.repository.fingerprint) throw new Error('Base repository does not match the profile fingerprint.');
     const resolution = resolvePatch(baseRoot, postRoot, path.resolve(patch));
     const touched = [...new Set(resolution.ranges.map(range => range.path))];
-    const files = touched.map(repoPath => { const source = fs.readFileSync(safeJoin(postRoot, repoPath), 'utf8'); return extractFileFeatures(repoPath, source); });
+    const sourceByPath = new Map(touched.map(repoPath => [repoPath, fs.readFileSync(safeJoin(postRoot, repoPath), 'utf8')]));
+    const files = touched.map(repoPath => extractFileFeatures(repoPath, sourceByPath.get(repoPath)!));
     const result = evaluateProfile(profile, files, resolution.ranges); result.skips.push(...resolution.skips); result.diagnostics.push(...resolution.diagnostics); result.partial ||= result.skips.length > 0;
+    if (fixes === 'auto') result.fixes = validateFixes(await generateFixes(result.violations, sourceByPath), postRoot, profile);
     console.log(renderReview(result));
     return result.violations.length ? 1 : 0;
   } catch (error) { console.error(error instanceof Error ? error.message : 'Unable to review changes.'); return 2; }
