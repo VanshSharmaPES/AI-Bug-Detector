@@ -1,90 +1,35 @@
 # Codex Reviewer
 
-A GitHub App that performs automated, AI-powered code review on Pull Requests. It parses code structurally (not just as text), reasons about it using an LLM, and posts inline review comments on the exact lines where issues are found.
+Codex Reviewer is a repository-aware TypeScript/JavaScript convention reviewer. It learns evidence-backed conventions from a base repository, evaluates only lines introduced by a unified patch, explains violations with supporting examples, and can propose fixes that are validated in an isolated copy.
 
-**Live:** Deployed on Vercel · **Languages supported:** C, C++, Python, JavaScript, TypeScript
-
----
-
-## What it does
-
-When a Pull Request is opened or updated, Codex Reviewer:
-
-1. Receives the event via a GitHub webhook (signature-verified)
-2. Parses the changed files into an Abstract Syntax Tree (AST) using `tree-sitter`
-3. Runs a lightweight rule engine over the AST to surface structural hints (e.g. suspicious patterns worth flagging to the model)
-4. Builds a prompt combining the raw diff, AST context, and rule hints
-5. Sends it to an LLM (Groq / Llama 3.3 70B, with OpenAI-compatible fallback) and validates the structured JSON response against a schema (Zod)
-6. Maps each finding back to its exact line in the diff and posts an inline PR comment
-
-Detected issue types include memory leaks, race conditions, null dereferences, and injection vulnerabilities.
-
-## Why structural parsing instead of pattern matching
-
-Regex-based review tools match text, not code. A rule like "flag `strcpy` calls" using regex has no way to know if that call is inside a comment, a string literal, or genuinely reachable code — it just matches the substring. Parsing into an AST means the tool understands actual code structure: scope, control flow, and where a given variable is declared versus used. That's the difference between a lint rule that fires on real bugs and one that mostly produces noise.
-
-## Why an async job queue instead of handling requests synchronously
-
-GitHub expects a webhook response within a few seconds, or it treats the delivery as failed and retries — which would trigger duplicate analysis of the same PR. An LLM call over AST + diff context can easily take longer than that window. So the webhook handler does the minimum needed to acknowledge receipt (verify signature, enqueue the job, return 200 immediately), and a separate BullMQ worker processes the job asynchronously against Redis. This also provides retry-on-failure without re-triggering the webhook, and a natural point to add backpressure if many PRs arrive at once.
-
----
-
-## Tech Stack
-
-| Layer | Tech |
-|---|---|
-| Framework | Next.js (App Router), Node.js 20+ |
-| GitHub integration | Octokit (`@octokit/rest`, `@octokit/webhooks`, `@octokit/auth-app`) |
-| Structural parsing | tree-sitter, `@typescript-eslint/typescript-estree` |
-| AI | Groq SDK (Llama 3.3 70B), OpenAI SDK (fallback) |
-| Queue | BullMQ + Redis |
-| Validation | Zod (strict schema validation on LLM output) |
-| Deployment | Vercel, Docker Compose (local) |
-
-## Architecture
-
-```
-GitHub PR event
-     │
-     ▼
-Webhook handler (HMAC-verified) ──► enqueue job ──► return 200
-                                          │
-                                          ▼
-                                   BullMQ worker (async)
-                                          │
-                     ┌────────────────────┼────────────────────┐
-                     ▼                    ▼                    ▼
-              AST parsing          Rule engine hints      Diff context
-              (tree-sitter)                                    │
-                     └────────────────────┬────────────────────┘
-                                          ▼
-                              Prompt → LLM (Groq/OpenAI)
-                                          │
-                                          ▼
-                        Zod-validated structured findings
-                                          │
-                                          ▼
-                     Map findings to diff lines → post inline PR comments
-```
+**Primary focus:** deterministic, explainable repository convention review for the Developer Tools category.
 
 ## Repository Convention Reviewer CLI
 
-The project also includes a local TypeScript/JavaScript convention-review workflow. It profiles a base repository to learn evidence-backed conventions, verifies a patch against a post-change copy, and reports only newly introduced deviations. The current CLI supports deterministic conventions such as naming style, import order, function length, and exported-code documentation; optional LLM-generated patterns are stored as advisory evidence rather than treated as automatic violations.
+The CLI profiles a base repository, compares a post-change repository against a patch, and reports only newly introduced convention deviations. It supports deterministic naming style, import order, function length, and exported-code documentation rules. Optional LLM patterns are advisory evidence and never create ungrounded violations.
+
+```bash
+npm install
+npm run demo:conventions
+```
+
+The demo profiles the included fixtures, reviews a deliberately problematic patch, and validates a mocked fix end-to-end. It requires no Redis, GitHub credentials, or AI provider.
+
+For the individual commands:
 
 ```bash
 npm run conventions:profile -- --repo fixtures/convention-base --out fixtures/profile.json
 npm run conventions:review -- --base fixtures/convention-base --repo fixtures/convention-change --profile fixtures/profile.json --patch fixtures/convention-change.patch
-npm run demo:conventions
 ```
 
-Pass `--fixes auto` to request up to three structured AI-generated unified diffs for the detected convention violations. Each generated diff is applied in an isolated temporary copy, reparsed, checked against the original rule, and rejected if it introduces another convention violation or touches an unrelated location.
+Use `--fixes auto` to request up to three structured AI-generated diffs. Every diff is applied in an isolated temporary copy, reparsed, checked against the original rule, and rejected if it touches unrelated code or introduces another convention violation.
 
-The review command compares three inputs: `--base` is the repository used to learn conventions, `--repo` is the post-change repository, and `--patch` identifies the changed lines. This prevents pre-existing violations outside the patch from being reported as new findings. Use `--llm-patterns` when profiling to add optional, evidence-grounded advisory patterns; deterministic findings do not require an AI key.
+The review command compares `--base`, `--repo`, and `--patch` so pre-existing violations outside the changed ranges are not reported as new findings. Use `--llm-patterns` during profiling to add optional evidence-grounded advisory patterns.
 
 ### CLI exit codes
 
-- `0`: profile/review completed with no enforceable violations.
-- `1`: review completed and found one or more violations.
+- `0`: completed without enforceable violations.
+- `1`: completed with one or more violations.
 - `2`: invalid arguments, profile, patch, or output path.
 - `3`: no eligible source file could be analyzed.
 
@@ -97,33 +42,19 @@ npx tsc --noEmit
 npm run build
 ```
 
-The fixture workflow is deterministic and does not require Redis, GitHub credentials, or an AI provider. AI-generated fixes are never applied to the user’s working tree automatically; they are validated in an isolated temporary copy first.
+## Related Experiment: PR Bug-Detection App
 
-The demo command profiles the included fixture repository, reviews the fixture patch, and validates a mocked fix end-to-end. It is the quickest way to rehearse the convention workflow after a clean checkout.
+This repository also contains an earlier GitHub App exploration for AST- and LLM-assisted pull-request bug detection. It experimented with webhook processing, Redis-backed jobs, inline comments, and Vercel deployment, but it is separate from the convention-reviewer submission focus and is not being extended in the current milestone. The convention CLI is the primary project workflow and the recommended path for evaluation.
 
-Open `/dashboard` to view persisted convention review history, pass/fail status, and violation totals. The dashboard is intentionally read-only; review actions and fix PR creation remain explicit workflow steps.
+## Profiles, GitHub integration, and history
 
-The Code Snippet editor keeps Tab inside the editor and inserts two spaces (`TAB_WIDTH` in `src/app/page.tsx`). Shift+Tab removes one indentation level from the current line.
+Repository profiles are validated against a versioned schema and stored atomically under `.codex-reviewer/profiles/<owner>__<repo>.json`. The optional GitHub worker path can fetch base/head trees, run convention reviews, publish Check Runs and inline comments, and persist review history at `.codex-reviewer/reviews.json`.
 
-History entries include review duration, files analyzed, and the active provider (`deterministic`, `groq`, or `openai`) when available. The dashboard presents these as operational telemetry rather than performance claims.
-
-`GET /api/health` now reports `queue.redisConfigured` and `queue.redisReachable`, making Redis readiness visible before enabling queued webhook processing.
-
-The GitHub publication and telemetry paths have mocked coverage in the convention test suite. Live webhook, Redis, Check Run, and fix-PR verification still requires a configured GitHub App installation and runtime Redis service.
-
-Repository profiles can also be managed through the profile registry APIs. Profiles are validated against the versioned schema and stored atomically under `.codex-reviewer/profiles/<owner>__<repo>.json`; corrupt or unsupported profiles are rejected instead of being used for review.
-
-Webhook deliveries now carry the PR head/base SHAs and use a deterministic BullMQ job ID, preventing duplicate processing when GitHub retries the same delivery. Set `CONVENTION_REVIEW_ENABLED=true` to fetch base/head source trees, materialize isolated repositories, and run the convention evaluator in the worker. Set `CONVENTION_PROFILE_PATH` to reuse a persisted profile; otherwise a profile is learned from the base tree.
-
-Set `CONVENTION_PUBLISH=true` to publish convention results as a GitHub Check Run with changed-line annotations and inline review comments. Review history is retained locally through `GET /api/reviews` in `.codex-reviewer/reviews.json`. Validated fix PR creation is available through the guarded `createValidatedFixPullRequest` service and must be explicitly wired to an approved fix workflow.
-
-For automatic fixes, set both `CONVENTION_FIXES=auto` and `CONVENTION_CREATE_FIX_PR=true`. Only fixes that pass isolated patch application, parsing, rule re-evaluation, and regression checks are committed to a dedicated `codex-reviewer/fixes-*` branch and opened as a separate pull request.
+The dashboard is available at `/dashboard`; it shows persisted review status, violations, duration, files analyzed, and provider telemetry. These runtime integrations require a configured GitHub App and Redis, while the local fixture workflow remains independent of them.
 
 ## How Codex and GPT-5.6 were used
 
-Codex, using GPT-5.6, was used as a development collaborator for architecture review, implementation planning, code generation, test creation, and local verification of the repository-convention CLI. It helped structure the code into typed, independently testable modules and validate the profile-and-review flow against fixtures.
-
-Codex and GPT-5.6 are not part of the application’s runtime review pipeline. Runtime AI analysis continues to use the configured Groq or OpenAI-compatible provider; project decisions, review of generated changes, and final integration remain human-directed.
+Codex, using GPT-5.6, was used as a development collaborator specifically for the repository-convention CLI: architecture review, implementation planning, typed module design, fixture creation, test generation, demo validation, and documentation. It was not used to expand the earlier bug-detection experiment described above.
 
 ## Running locally
 
@@ -131,30 +62,11 @@ Codex and GPT-5.6 are not part of the application’s runtime review pipeline. R
 git clone https://github.com/VanshSharmaPES/codex-reviewer.git
 cd codex-reviewer
 npm install
-cp .env.example .env   # fill in GITHUB_APP_ID, GITHUB_WEBHOOK_SECRET, GROQ_API_KEY, REDIS_URL
 ```
 
-Requires a registered GitHub App (Pull requests: Read & Write, Metadata: Read-only, Webhooks subscribed to PR events) with its private key saved as `private-key.pem` in the project root.
+The convention CLI and demo need no environment variables. The optional GitHub worker requires the values in `.env.example`, a registered GitHub App, and Redis available at `REDIS_URL`.
 
-```bash
-docker-compose up --build   # Redis + Next.js server + worker, containerized
-```
-
-or run components separately: `redis-server`, `npm run dev`, `npm run worker`.
-
-### Vercel deployment checks
-
-Before deploying, run `npm run build` locally. The production build requires the direct `tree-sitter` dependency declared in `package.json`; Vercel will also fail the build when JSX text contains unescaped apostrophes or quotes. Redis is required by the webhook/worker path, but the convention-review CLI and the static frontend build do not require a local Redis server.
-
-Queue and Redis clients are initialized lazily when the webhook route or worker actually needs them. This keeps `npm run build` and Vercel prerendering independent of a running Redis instance; configure `REDIS_URL` in the deployed runtime for queued webhook processing.
-
-## Roadmap
-
-- Professional UI refinement for the dashboard and review experience, with a distinctive visual system and polished states
-
-- Interactive "Suggested Changes" (auto-fix commits, not just comments)
-- Codebase-aware RAG — semantic cross-file context so findings account for related code beyond the diff
-- Web dashboard for review history and telemetry
+`GET /api/health` reports `queue.redisConfigured` and `queue.redisReachable`. Queue clients are initialized lazily, so the static frontend build does not require Redis.
 
 ## License
 
