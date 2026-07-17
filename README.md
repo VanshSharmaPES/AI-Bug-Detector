@@ -67,6 +67,21 @@ Webhook handler (HMAC-verified) ──► enqueue job ──► return 200
                      Map findings to diff lines → post inline PR comments
 ```
 
+## Repository Convention Reviewer CLI
+
+The project also includes a local TypeScript/JavaScript convention-review workflow. It profiles a base repository to learn evidence-backed conventions, verifies a patch against a post-change copy, and reports only newly introduced deviations. The current CLI supports deterministic conventions such as naming style, import order, function length, and exported-code documentation; optional LLM-generated patterns are stored as advisory evidence rather than treated as automatic violations.
+
+```bash
+npm run conventions:profile -- --repo fixtures/convention-base --out fixtures/profile.json
+npm run conventions:review -- --base fixtures/convention-base --repo fixtures/convention-change --profile fixtures/profile.json --patch fixtures/convention-change.patch
+```
+
+## How Codex and GPT-5.6 were used
+
+Codex, using GPT-5.6, was used as a development collaborator for architecture review, implementation planning, code generation, test creation, and local verification of the repository-convention CLI. It helped structure the code into typed, independently testable modules and validate the profile-and-review flow against fixtures.
+
+Codex and GPT-5.6 are not part of the application’s runtime review pipeline. Runtime AI analysis continues to use the configured Groq or OpenAI-compatible provider; project decisions, review of generated changes, and final integration remain human-directed.
+
 ## Running locally
 
 ```bash
