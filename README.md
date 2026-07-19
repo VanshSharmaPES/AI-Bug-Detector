@@ -64,6 +64,8 @@ The dashboard is available at `/dashboard`; it shows persisted review status, vi
 
 Codex, using GPT-5.6, was used as a development collaborator specifically for the repository-convention CLI: architecture review, implementation planning, typed module design, fixture creation, test generation, demo validation, and documentation. It was not used to expand the earlier bug-detection experiment described above.
 
+GPT-5.6 is also called directly at runtime, separately from its role in Codex during development. When `--llm-patterns` is enabled, it reviews a sampled set of functions and returns a structured, confidence-scored judgment on patterns a parser can't reliably classify on its own, such as error-handling shape. This output is advisory evidence only: every example the model cites is checked against the real candidates it was shown, and any pattern is discarded if it cites evidence it wasn't actually given. It can never create a violation on its own.
+
 ## Optional: environment variables
 
 The convention CLI and demo need no environment variables. The optional GitHub worker requires the values in `.env.example`, a registered GitHub App, and Redis available at `REDIS_URL`.
